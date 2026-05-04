@@ -1,0 +1,4 @@
+HDMAssessment/        # blocks all the CSV data files from being pushed
+.Rhistory
+.RData
+*.csv
