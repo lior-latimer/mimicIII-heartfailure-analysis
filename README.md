@@ -5,3 +5,5 @@ Relevant topics: ICD-9 code extraction, exploratory data analysis, prescription 
 01_query_data.R queries and aggregates the necessary MIMIC III data
 
 02_analysis_report.qmd generates the full analysis and report
+
+Completed as part of the Health Data Managment Module, LSHTM
