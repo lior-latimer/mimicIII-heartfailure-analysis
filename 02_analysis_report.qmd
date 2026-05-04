@@ -1,0 +1,386 @@
+---
+format:
+  pdf:
+    pdf-engine: xelatex
+    documentclass: article
+    classoption:
+      - notitlepage
+    mainfont: "Times New Roman"
+    toc: false
+    toc-depth: 2
+    number-sections: true
+execute:
+  warning: false
+  message: false
+header-includes:
+  - \usepackage{titling}
+  - \setlength{\droptitle}{-1.2cm}  
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \setlength{\textfloatsep}{5pt}
+  - \setlength{\floatsep}{5pt}
+  - \setlength{\intextsep}{5pt}
+  - \usepackage[margin=1in]{geometry}
+---
+
+```{=tex}
+\begin{center}
+{\LARGE Heart Failure Analysis in MIMIC-III\par}
+\vspace{0.2em}
+{\large `r Sys.Date()`\par}
+\end{center}
+\vspace{1.5em}
+```
+This report summarizes several characteristics of heart failure patients in the MIMIC-III dataset.
+
+```{r}
+#| echo: false
+
+#load required packages
+library(kableExtra)
+library(tidyverse)
+library(dbplyr)
+library(readr)
+library(gt)
+library(gtsummary)
+library(ggplot2)
+library(here)
+
+#load data
+data  <- read.csv(here("HDMAssessment", "hf_summary_final.csv"))
+data2 <- read.csv(here("HDMAssessment", "nonhf_summary_final.csv"))
+data3 <- read.csv(here("HDMAssessment", "question2.csv"))
+data4 <- read.csv(here("HDMAssessment", "question3.csv"))
+```
+
+## Heart Failure vs Non-Heart Failure
+
+Table 1 compares heart failure and non-heart failure hospital admissions by diabetes status, admission type, ethnicity, gender, and age group.
+
+```{r}
+#| echo: false
+#|
+combined_summary <- data %>%
+  mutate(hf_status = "Heart Failure") %>%
+  bind_rows(
+    data2 %>% mutate(hf_status = "Non-Heart Failure")
+  )
+
+combined_summary <- combined_summary %>%
+  mutate(
+    admission_type = fct_recode(admission_type,
+                                 "Elective" = "ELECTIVE",
+                                 "Urgent" = "URGENT",
+                                 "Emergency" = "EMERGENCY",
+                                "Newborn" = "NEWBORN"),
+    ethnicity_grouped = fct_recode(ethnicity_grouped,
+                                   "Asian" = "asian",
+                                   "Black" = "black",
+                                   "Hispanic" = "hispanic",
+                                   "Native" = "native",
+                                   "Other" = "other",
+                                   "White" = "white"),
+    gender = fct_recode(gender,
+                        "Female" = "F",
+                        "Male" = "M"))
+
+combined_summary <- combined_summary %>%
+  mutate(
+    ethnicity_grouped = ethnicity_grouped %>%
+      fct_explicit_na(na_level = "Unknown") %>%
+      fct_recode(
+        "Asian" = "asian",
+        "Black" = "black",
+        "Hispanic" = "hispanic",
+        "Native" = "native",
+        "Other" = "other",
+        "White" = "white",
+        "Unknown" = "unknown"
+      ) %>%
+       fct_relevel(
+        "Asian", "Black", "Hispanic", "Native", "Other", "White", "Unknown"
+      )
+  )
+
+hf_vs_nonhf_table <- combined_summary %>%
+  select(
+    has_secondary_diabetes,
+    admission_type,
+    ethnicity_grouped,
+    gender,
+    age_group,
+    hf_status
+  ) %>%
+  tbl_summary(
+    by = hf_status,
+     label = list(
+      has_secondary_diabetes ~ "Secondary Diabetes",
+      admission_type ~ "Admission Type",
+      ethnicity_grouped ~ "Ethnicity",
+      gender ~ "Gender",
+      age_group ~ "Age Group (years)"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} / {N} ({p}%)"
+    ),
+    missing = "ifany"
+  ) %>%
+  bold_labels()
+
+hf_vs_nonhf_table %>%
+  as_kable_extra(
+    booktabs = TRUE,
+    linesep = "",
+    caption = "Comparison of demographic and clinical characteristics between heart failure and non–heart failure patients"
+  ) %>%
+  kable_styling(
+    latex_options = c("scale_down", "HOLD_position"),  
+    font_size = 9
+  )
+```
+
+\small Note: Patients with secondary diabetes both with and without complications were categorized as having diabetes.
+
+Key takeaways: (1) Admissions are more likely to be an emergency if a patient has heart failure compared to one who does not. (2) Heart failure admissions are more common in the later age groups compared to non-heart failure admissions.
+
+\vspace{5em}
+
+## Heart Failures - Time in Hospital, ICU, & Death Counts
+
+Tables 2-5 summarize information about heart failure patients' deaths and overall time in the hospital & ICU, each stratified by a different characteristic. Patients without known information about the stratifications were removed from the corresponding table.
+
+```{r}
+#| echo: false
+#summary stratified by age
+age_table <- data3 %>%
+  select(
+    age_strat,
+    time_in_hospital,
+    time_in_icu,
+    died
+  ) %>%
+  tbl_summary(
+    by = age_strat,
+    label = list(
+      time_in_hospital ~ "Time in hospital (days)",
+      time_in_icu ~ "Time in ICU (days)",
+      died ~ "Died"
+    ),
+    statistic = list(
+      time_in_hospital ~ "{median} ({p25}, {p75})",
+      time_in_icu ~ "{median} ({p25}, {p75})",
+      died ~ "{n} / {N} ({p}%)"
+    ),
+    missing = "ifany"
+  ) %>%
+  modify_header(label ~ "**Age group (years)**") %>%
+  modify_footnote(
+    all_continuous() ~ "Median (25th percentile, 75th percentile)"
+  ) %>%
+  bold_labels()
+
+age_table %>%
+  as_kable_extra(booktabs = TRUE, linesep = "",
+                 caption = "Summary of hospital and ICU length of stay and in-hospital mortality, stratified by age") %>%
+  kable_styling(latex_options = c("scale_down",  "HOLD_position"),
+                font_size = 9)
+```
+
+\small Note: No heart failure admissions were age 0-17, so this stratum was omitted. \vspace{2em}
+
+```{r}
+#| echo: false
+#summary stratified by gender
+gender_table <- data3 %>%
+  mutate(gender = recode(gender,
+                         "F" = "Female",
+                         "M" = "Male")) %>%
+  select(
+    gender,
+    time_in_hospital,
+    time_in_icu,
+    died
+  ) %>%
+  tbl_summary(
+    by = gender,
+    label = list(
+      time_in_hospital ~ "Time in hospital (days)",
+      time_in_icu ~ "Time in ICU (days)",
+      died ~ "Died"
+    ),
+    statistic = list(
+      time_in_hospital ~ "{median} ({p25}, {p75})",
+      time_in_icu ~ "{median} ({p25}, {p75})",
+      died ~ "{n} / {N} ({p}%)"
+    ),
+    missing = "ifany"
+  ) %>%
+  modify_header(label ~ "**Gender**") %>%
+  add_overall() %>%
+  bold_labels()
+
+gender_table %>%
+  as_kable_extra(booktabs = TRUE, linesep = "",
+                 caption = "Summary of hospital and ICU length of stay and in-hospital mortality, stratified by gender") %>%
+  kable_styling(latex_options = c("scale_down", "HOLD_position"),
+                font_size = 9)
+```
+
+\vspace{2em}
+
+```{r}
+#| echo: false
+
+
+library(stringr)
+
+ethnicity_table <- data3 %>%
+  mutate(ethnicity_grouped = str_to_title(ethnicity_grouped)) %>%  # Capitalize each word
+  select(
+    ethnicity_grouped,
+    time_in_hospital,
+    time_in_icu,
+    died
+  ) %>%
+  tbl_summary(
+    by = ethnicity_grouped,
+    label = list(
+      time_in_hospital ~ "Time in hospital (days)",
+      time_in_icu ~ "Time in ICU (days)",
+      died ~ "Died"
+    ),
+    statistic = list(
+      time_in_hospital ~ "{median} ({p25}, {p75})",
+      time_in_icu ~ "{median} ({p25}, {p75})",
+      died ~ "{n} / {N} ({p}%)"
+    ),
+    missing = "ifany"
+  ) %>%
+  bold_labels() %>%
+  modify_header(label ~ "**Ethnicity**") %>%  # Change "Characteristic" to "Ethnicity"
+  modify_footnote(
+    all_continuous() ~ "Median (25th percentile, 75th percentile)"
+  )
+
+ethnicity_table %>%
+  as_kable_extra(booktabs = TRUE, linesep = "",
+                 caption = "Summary of hospital and ICU length of stay and in-hospital mortality, stratified by ethnicity") %>%
+  kableExtra::kable_styling(latex_options = c("scale_down", "HOLD_position"), font_size = 11)
+
+```
+
+\vspace{2em}
+
+```{r}
+#| echo: false
+#summary stratified by diabetes status
+diabetes_table <- data3 %>%
+  select(
+    has_secondary_diabetes,
+    time_in_hospital,
+    time_in_icu,
+    died
+  ) %>%
+  tbl_summary(
+    by = has_secondary_diabetes,
+      label = list(
+      time_in_hospital ~ "Time in hospital (days)",
+      time_in_icu ~ "Time in ICU (days)",
+      died ~ "Died"),
+    statistic = list(
+      time_in_hospital ~ "{median} ({p25}, {p75})",
+      time_in_icu ~ "{median} ({p25}, {p75})",
+      died ~ "{n} / {N} ({p}%)"
+    ),
+    missing = "ifany"
+  ) %>%
+  bold_labels() %>%
+  modify_header(label ~ "**Has Secondary Diabetes**")
+
+diabetes_table %>%
+  as_kable_extra(booktabs = TRUE, linesep = "",
+                 caption = "Summary of hospital and ICU length of stay and in-hospital mortality, stratified by diabetes status") %>%
+  kable_styling(latex_options = c("scale_down", "HOLD_position"),
+                font_size = 9)
+
+```
+
+Key takeaway: Days spent in the hospital/ICU and death counts are not vastly different between any of the above stratifications.
+
+\vspace{3em}
+
+## Heart Failures - Prescription Characteristics
+
+Table 6 and Figure 1 both refer to information regarding top prescriptions among heart failure patients.
+
+```{r}
+#| echo: false
+#|results: asis
+
+library(dplyr)
+library(tidyr)
+library(kableExtra)
+library(ggplot2)
+
+# Summarize drug data
+drug_table <- data4 %>%
+  group_by(drug) %>%
+  summarise(
+    total_prescriptions = n(),
+    avg_dose = mean(as.numeric(dose_val_rx), na.rm = TRUE),
+    icu_prescriptions = sum(!is.na(icustay_id)),
+    avg_prescriptions_per_admission = n() / n_distinct(hadm_id),
+    dose_unit = first(dose_unit_rx),
+    .groups = "drop"
+  ) %>%
+  mutate(avg_dose_with_unit = paste0(round(avg_dose, 2), " ", dose_unit),
+        avg_prescriptions_per_admission = round(avg_prescriptions_per_admission, 2))
+
+```
+
+\FloatBarrier
+
+::: columns
+```{r tbl6, echo=FALSE, results="asis"}
+drug_table %>%
+  dplyr::select(drug, avg_dose_with_unit, avg_prescriptions_per_admission) %>%
+  kableExtra::kbl(
+    booktabs = TRUE,
+    col.names = c("Drug", "Average Dose", "Average Number of Prescriptions per Admission"),
+    caption = "Average doses of top five prescriptions in heart failure patients"
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("HOLD_position"),
+    font_size = 10
+  )
+```
+:::
+
+```{r, echo=FALSE}
+#| fig-cap: "Total vs ICU prescriptions for the top five drugs"
+#| fig-pos: "H"
+#| out-width: "100%"
+
+#pivot table so that total and icu prescriptions can be compared
+drug_table_long <- drug_table %>%
+dplyr::select(drug, total_prescriptions, icu_prescriptions) %>%
+tidyr::pivot_longer(
+cols = c(total_prescriptions, icu_prescriptions),
+names_to = "type",
+values_to = "count"
+) %>% mutate(
+  type = recode(type,
+                total_prescriptions = "All prescriptions",
+                icu_prescriptions = "ICU prescriptions"))
+
+ggplot(drug_table_long, aes(x = drug, y = count, fill = type)) +
+geom_col(position = "dodge") +
+labs(x = "Drug", y = "Number of Prescriptions", fill = "Prescription Type") +
+theme_classic() +
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Key takeaways: (1) The most frequently prescribed medication both in the hospital as a whole and within the ICU is Furosemide. (2) The average number of prescriptions per admission does not largely differ between each of the five drugs.
+
+\FloatBarrier
