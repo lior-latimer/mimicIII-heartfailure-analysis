@@ -1,0 +1,7 @@
+mimic-heart-failure-analysis/
+│
+├── README.md
+├── .gitignore
+│
+├── 01_query_data.R        
+└── 02_analysis_report.qmd 
